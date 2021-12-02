@@ -2,15 +2,14 @@
 title: "Meta Analysis"
 author: "Quyen Duong"
 date: "Last edited `r format(Sys.time(), '%d %B %Y')`"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include = FALSE}
 # Set the default mode for all the chunks
 knitr::opts_chunk$set(message = FALSE, warning = FALSE, fig.align = "center", 
-                      fig.height = 8, fig.width = 8)
+                      fig.height = 6, fig.width = 8)
 ```
-
 
 ```{r load-packages, include=FALSE}
 library(quantmod)         # download stock price
@@ -22,14 +21,17 @@ library(forecast)         # to predict price
 library(prophet)
 ```
 
-
 # Introduction
 
+## Motivation
 The goal of the report is to compare three different machine learning methods to predict Meta stock price:
 
-* ARIMA: Autoregressive integrated moving average
-* GARCH: Generalized autoregressive conditional heteroskedasticity
-* Prophet
+* ARIMA: Auto-regressive integrated moving average
+* GARCH: Generalized auto-regressive conditional heteroskedasticity
+* Prophet: a procedure for forecasting time series data based on an additive model where non-linear trends are fit with yearly, weekly, and daily seasonality, plus holiday effects. It works best with time series that have strong seasonal effects and several seasons of historical data ^[https://facebook.github.io/prophet/]. 
+
+## Methodology
+Add text here 
 
 ```{r load-data}
 # Downloading Meta ("FB") via Yahoo Finance API
@@ -49,8 +51,6 @@ for (Ticker in tickers_index) {
   )
 }
 
-# Assign to ts 
-ts_meta <- ts(Meta[,-1], start = )
 
 # Change Meta to dataframe
 d_meta <- broom::tidy(Meta)
@@ -63,22 +63,39 @@ d_meta <- d_meta %>% select(index, value) %>%
 glimpse(d_meta)
 ```
 
-## Descriptive analysis
+# Descriptive analysis
+
+## Stock price
 
 Let's first have a look on the time series:
 
-```{r plot-timeseries-continous return}
+```{r plot-timeseries}
 # Plot the time series
 plot(Meta)
+```
 
+Meta price plot displays multiplicative trend and multiplicative seasonality.  
+The important task at this stage is assess the time series' stationary. Obviously, according to our plots, it is not stationary. Yet, we conduct the Augmented Dickey-Fuller (ADF), a so-called test to check whether a time series is (non-)stationary. The hypotheses are formed as follows:
+
+* $H_{0}: \rho = 1$: Time series has a unit root, hence, non-stationary, shows a trend over time 
+* $H_{1}: -1 < \rho < 1$: Time series is stationary
+
+```{r ADF-test-price, include = TRUE}
+# Conduct ADF test for the time series
+adf.test(d_meta$price_meta)
+```
+
+p-value = 0.67 > $\alpha$ of 0.05: fail to reject $H_{0}$, this time series is not stationary. 
+
+## Continous returns
+
+It's even more essential to check the histogram of Meta returns. In this case, we put the histogram and boxplot together in one graph to provide a comprehensive view over the returns:
+
+```{r histogram-return}
 # Calculating continuous returns 
 meta_returns <- na.omit(diff(log(Meta)))
 colnames(meta_returns)<-"meta_returns"
-```
 
-It's essential to check the histogram of Meta returns. In this case, we plot the histogram and boxplot together in one graph
-
-```{r histogram-return}
 # Histogram
 histogram_meta_return <- ggplot(meta_returns, mapping = aes(x = meta_returns)) +
   geom_histogram(color="black", fill = "grey", bins = 50) +
@@ -100,37 +117,40 @@ boxplot_meta_return <- ggplot(meta_returns, mapping = aes(x = "", y = meta_retur
 egg::ggarrange(histogram_meta_return, boxplot_meta_return, heights = 2:1)
 ```
 
-The histogram of Meta returns looks left skewed but let's check the basic statistics for skewness and kurtosis. 
+The histogram of Meta returns looks left-skewed but let's check the basic statistics for skewness and kurtosis. 
 
 ```{r Skewness-Kurtosis}
 psych::describe(meta_returns)
 ```
 
-* Skew = -1.05: Substantial skewed distribution with long left tail. Two data point on the far left are the two sinks of the returns.
-* Kurtosis = 12.83: 
+* Skew = -1.05: Substantial skewed distribution with long left tail. Remarkably, there are two data points on the far left presenting the two negative returns.
+* Kurtosis = 12.83: Leptokurtic distribution with long tails and concentrated toward the mean. ^[https://www.investopedia.com/terms/k/kurtosis.asp]
 
 ```{r plot-return}
 # Plot the returns
 plot(meta_returns)
 ```
 
+As expected from Kurtosis, the plot of returns exhibits constant trend around the mean. Nevertheless, the variance of returns is not constant over time. We test ADF once more time with the returns:
 
-The Augmented Dickey-Fuller (ADF) test is now used to test whether a time series is (non-)stationary. 
-
-$H_{0}: \rho = 1$: Time series has a unit root, hence, non-stationary, shows a trend over time 
-$H_{1}: -1 < \rho < 1$
-
-```{r ADF-test, include = TRUE}
-# Conduct ADF test for dataset
-adf.test(d_meta$price_meta)
+```{r ADF-test-returns, include = TRUE}
+# Conduct ADF test for the returns
+adf.test(meta_returns)
 ```
 
+p-value = 0.01 < $\alpha$: reject $H_{0}$: The continuous returns are stationary. 
 
+# Fitting models
 
+## ARIMA
 
+```{r}
+# Creating timeseries object for Meta price, do we need this?
+ts_meta <- ts(d_meta$price_meta, frequency = 365)
 
-
-
+# ACF & PACF 
+tsdisplay(Meta)
+```
 
 
 
