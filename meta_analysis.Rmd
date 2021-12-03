@@ -16,7 +16,7 @@ library(quantmod)         # download stock price
 library(tidyverse)
 library(dplyr)
 library(ggplot2)
-library(tseries)          # for ADF test
+library(tseries)          # for ts object, ADF test
 library(forecast)         # to predict price 
 library(prophet)
 ```
@@ -24,7 +24,7 @@ library(prophet)
 # Introduction
 
 ## Motivation
-The goal of the report is to compare three different machine learning methods to predict Meta stock price:
+The goal of the study is to compare three different machine learning methods to predict Meta stock price:
 
 * ARIMA: Auto-regressive integrated moving average
 * GARCH: Generalized auto-regressive conditional heteroskedasticity
@@ -51,7 +51,6 @@ for (Ticker in tickers_index) {
   )
 }
 
-
 # Change Meta to dataframe
 d_meta <- broom::tidy(Meta)
 
@@ -61,31 +60,52 @@ d_meta <- d_meta %>% select(index, value) %>%
 
 # Glimpse on the data
 glimpse(d_meta)
+
+# Create timeseries object from meta price with frequency 260
+ts_meta <- ts(d_meta$price_meta, frequency = 260)
 ```
 
 # Descriptive analysis
 
 ## Stock price
 
-Let's first have a look on the time series:
+Let's first have a look at the time series:
 
 ```{r plot-timeseries}
 # Plot the time series
 plot(Meta)
 ```
 
-Meta price plot displays multiplicative trend and multiplicative seasonality.  
-The important task at this stage is assess the time series' stationary. Obviously, according to our plots, it is not stationary. Yet, we conduct the Augmented Dickey-Fuller (ADF), a so-called test to check whether a time series is (non-)stationary. The hypotheses are formed as follows:
+Meta price plot displays multiplicative trend and multiplicative seasonality. The important task at this stage is assess the time series' stationary. Obviously, according to the plot above, it is not stationary. Yet, we conduct the Augmented Dickey-Fuller (ADF), a so-called test to check whether a time series is (non-)stationary. The hypotheses are formed as follows:
 
 * $H_{0}: \rho = 1$: Time series has a unit root, hence, non-stationary, shows a trend over time 
 * $H_{1}: -1 < \rho < 1$: Time series is stationary
 
 ```{r ADF-test-price, include = TRUE}
-# Conduct ADF test for the time series
-adf.test(d_meta$price_meta)
+# Conduct ADF test for price
+adf.test(Meta)
 ```
 
-p-value = 0.67 > $\alpha$ of 0.05: fail to reject $H_{0}$, this time series is not stationary. 
+p-value = 0.67 > $\alpha$ of 0.05: fail to reject $H_{0}$, this time series is not stationary.
+
+```{r ADF-test-log-price}
+# Conduct ADF test for logged price
+adf.test(log(Meta))
+```
+
+p-value = 0.49 > $\alpha$ of 0.05: fail to reject $H_{0}$, this log-transformed time series is not stationary.
+
+### Decompose the time series
+
+```{r decompose-ts}
+# Decompose according to TSA module
+meta_decomposed <- decompose(ts_meta)
+plot(meta_decomposed)
+
+# Seasonal Decomposition of Time Series by Loess
+stl_meta <- stl(ts_meta, s.window = "periodic")
+plot(stl_meta)
+```
 
 ## Continous returns
 
@@ -93,11 +113,11 @@ It's even more essential to check the histogram of Meta returns. In this case, w
 
 ```{r histogram-return}
 # Calculating continuous returns 
-meta_returns <- na.omit(diff(log(Meta)))
-colnames(meta_returns)<-"meta_returns"
+returns_meta <- na.omit(diff(log(Meta)))
+colnames(returns_meta)<-"returns_meta"
 
 # Histogram
-histogram_meta_return <- ggplot(meta_returns, mapping = aes(x = meta_returns)) +
+histogram_meta_return <- ggplot(returns_meta, mapping = aes(x = returns_meta)) +
   geom_histogram(color="black", fill = "grey", bins = 50) +
   #geom_density(alpha=.2, color ="blue") +
   scale_x_continuous() +
@@ -106,7 +126,7 @@ histogram_meta_return <- ggplot(meta_returns, mapping = aes(x = meta_returns)) +
   theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 
 # Boxplot
-boxplot_meta_return <- ggplot(meta_returns, mapping = aes(x = "", y = meta_returns)) +
+boxplot_meta_return <- ggplot(returns_meta, mapping = aes(x = "", y = returns_meta)) +
   geom_boxplot(color = "black", fill = "grey") +
   scale_y_continuous() +
   coord_flip() +
@@ -119,8 +139,8 @@ egg::ggarrange(histogram_meta_return, boxplot_meta_return, heights = 2:1)
 
 The histogram of Meta returns looks left-skewed but let's check the basic statistics for skewness and kurtosis. 
 
-```{r Skewness-Kurtosis}
-psych::describe(meta_returns)
+```{r Skewness-Kurtosis-return}
+psych::describe(returns_meta)
 ```
 
 * Skew = -1.05: Substantial skewed distribution with long left tail. Remarkably, there are two data points on the far left presenting the two negative returns.
@@ -128,14 +148,14 @@ psych::describe(meta_returns)
 
 ```{r plot-return}
 # Plot the returns
-plot(meta_returns)
+plot(returns_meta)
 ```
 
 As expected from Kurtosis, the plot of returns exhibits constant trend around the mean. Nevertheless, the variance of returns is not constant over time. We test ADF once more time with the returns:
 
 ```{r ADF-test-returns, include = TRUE}
 # Conduct ADF test for the returns
-adf.test(meta_returns)
+adf.test(returns_meta)
 ```
 
 p-value = 0.01 < $\alpha$: reject $H_{0}$: The continuous returns are stationary. 
@@ -144,13 +164,65 @@ p-value = 0.01 < $\alpha$: reject $H_{0}$: The continuous returns are stationary
 
 ## ARIMA
 
-```{r}
-# Creating timeseries object for Meta price, do we need this?
-ts_meta <- ts(d_meta$price_meta, frequency = 365)
+To fit an ARIMA model, we must perform preliminary checks:
 
-# ACF & PACF 
-tsdisplay(Meta)
+- Is the model stationary?
+- Do the properties of (P)ACF match?
+- Which orders of p, d, q?
+
+### Manually choosing model
+
+```{r}
+# ACF & PACF -> which one is the correct?
+tsdisplay(log(Meta))
+tsdisplay(returns_meta)
+
+# Identifying p and q of the ARIMA(p,1,q)-model by testing different model specifications
+max.order <- 8 # We only allow a maximum of 8 AR- and/or MA-terms 
+d <- 1         # we difference at lag 1 then the time series became stationary
+
+# Defining the matrix in for values of the AICs for different model specifications are stored
+arima_aic <- matrix(NA, ncol=max.order+1, nrow=max.order+1)
+row.names(arima_aic) <- c(0:max.order) # Order of AR(p) in rows
+colnames(arima_aic) <- c(0:max.order) # Order of MA(q) in columns
+
+# Calculating and storing the AICs for different model specifications
+for(i in 0:max.order){
+  for(j in 0:max.order){
+    arima_aic[i+1,j+1] <- Arima(y=log(SMI), order=c(i,d,j), include.constant = TRUE)$aic
+  }
+}
+arima_aic
+
+# Finding the model specification which minimizes the AIC
+index <- which(arima_aic == min(arima_aic), arr.ind = TRUE)
+ar <- as.numeric(rownames(arima_aic)[index[1]])
+ma <- as.numeric(colnames(arima_aic)[index[2]])
+
+# Estimating the optimal ARIMA-model and testing for significance of the coefficients
+arima <- Arima(y=log(Meta), order=c(ar,1,ma), include.constant = TRUE)
+coeftest(arima)
 ```
 
+Using matrix to calculate and choose the min of AIC, the result is ARIMA(7,1,6) with drift 
 
+### Auto-Arima
+
+```{r auto-arima}
+# Fit an auto-arima
+fit_auto_ari <- auto.arima(y = log(Meta), ic = c("aicc", "aic", "bic"), 
+                          trace = TRUE)
+```
+
+Using auto.arima, we got ARIMA(1,1,0) with drift. 
+
+Check again why there is the differences like this from the previous part and this part.
+
+### Forecasting
+
+```{r forecast-auto.arima}
+# Forecasting 60 days
+pred <- forecast(fit_auto_ari, level = 0.95, h = 60)
+plot(pred, ylab="Meta")
+```
 
