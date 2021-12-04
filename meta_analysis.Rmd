@@ -19,6 +19,7 @@ library(ggplot2)
 library(tseries)          # for ts object, ADF test
 library(forecast)         # to predict price 
 library(prophet)
+library(astsa)            # for ARIMA model, check residual
 ```
 
 # Introduction
@@ -172,12 +173,16 @@ To fit an ARIMA model, we must perform preliminary checks:
 
 ### Manually choosing model
 
-```{r}
-# ACF & PACF -> which one is the correct?
+```{r acf-pacf-returns-meta}
+# ACF & PACF of returns_meta
 tsdisplay(log(Meta))
-tsdisplay(returns_meta)
+```
 
-# Identifying p and q of the ARIMA(p,1,q)-model by testing different model specifications
+First, ACF shows gradual decay and PACF clear cuts off at lag 1. 
+
+
+```{r}
+# Identifying p, q of the ARIMA(p,1,q)-model by testing different specifications
 max.order <- 8 # We only allow a maximum of 8 AR- and/or MA-terms 
 d <- 1         # we difference at lag 1 then the time series became stationary
 
@@ -189,7 +194,7 @@ colnames(arima_aic) <- c(0:max.order) # Order of MA(q) in columns
 # Calculating and storing the AICs for different model specifications
 for(i in 0:max.order){
   for(j in 0:max.order){
-    arima_aic[i+1,j+1] <- Arima(y=log(SMI), order=c(i,d,j), include.constant = TRUE)$aic
+    arima_aic[i+1,j+1] <- Arima(y=log(Meta), order=c(i,d,j), include.constant = TRUE)$aic
   }
 }
 arima_aic
@@ -201,26 +206,48 @@ ma <- as.numeric(colnames(arima_aic)[index[2]])
 
 # Estimating the optimal ARIMA-model and testing for significance of the coefficients
 arima <- Arima(y=log(Meta), order=c(ar,1,ma), include.constant = TRUE)
-coeftest(arima)
 ```
 
-Using matrix to calculate and choose the min of AIC, the result is ARIMA(7,1,6) with drift 
+Using matrix to calculate and choose the min of AIC, the result is ARIMA(4,1,5) with drift.
 
 ### Auto-Arima
 
 ```{r auto-arima}
 # Fit an auto-arima
-fit_auto_ari <- auto.arima(y = log(Meta), ic = c("aicc", "aic", "bic"), 
-                          trace = TRUE)
+fit_auto_ari <- auto.arima(y = log(Meta), ic = c("aicc", "aic", "bic"))
+fit_auto_ari
 ```
 
 Using auto.arima, we got ARIMA(1,1,0) with drift. 
 
 Check again why there is the differences like this from the previous part and this part.
 
+### Residual analysis
+
+The goal of this part is to ensure that the residuals are white Gaussian noise. After getting ARIMA(1,1,0) from auto.arima, we evaluate the residuals of this model. 
+
+```{r residual-check-auto-arima}
+# Use sarima from package astsa because many plots shown
+# Check residuals ARIMA(1,1,0)
+sarima(log(Meta), 1,1,0, Model = FALSE)
+
+## Check residuals ARIMA(4,1,5)
+sarima(log(Meta), 4,1,5, Model = FALSE)
+```
+
+Observations:
+
+- Standardized residuals: hard to say if there is an obvious pattern.
+- Sample ACF of residuals: 95% of the ACF values should be between the confidence band. 
+- Normal Q-Q plot: if the residuals are normal, the points will be in the blue line. However, there are often extreme value on the ends as in the graph. If there are no huge departures from the line, the normal assumption is reasonable. 
+- Q-statistic p-values: if most points are above the blue lines, we can assume white noise. If this is not the case, there might be some correlation left in the residuals, we might consider to fit another model or add a parameter. Here, the bottom plot of ARIMA(1,1,0) displays some points above the line but many are touching or under the line. In contrast, the Lijung-Box for ARIMA(4,1,5) shows all the points above the line.   
+
+
 ### Forecasting
 
 ```{r forecast-auto.arima}
+# Creating test and train dataset
+
 # Forecasting 60 days
 pred <- forecast(fit_auto_ari, level = 0.95, h = 60)
 plot(pred, ylab="Meta")
