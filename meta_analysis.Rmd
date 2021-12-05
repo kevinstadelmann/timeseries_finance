@@ -235,20 +235,24 @@ Observations:
 - Standardized residuals: hard to say if there is an obvious pattern.
 - Sample ACF of residuals: 95% of the ACF values should be between the confidence band. ARIMA(4,1,4) has more ACF stay in the confidence range. 
 - Normal Q-Q plot: if the residuals are normal, the points will be in the blue line. However, there are often extreme value on the ends as in the graph. If there are no huge departures from the line, the normal assumption is reasonable. 
-- Q-statistic p-values: if most points are above the blue lines, we can assume white noise. If this is not the case, there might be some correlation left in the residuals, we might consider to fit another model or add a parameter. Here, the bottom plot of ARIMA(1,1,0) displays two points above the line but the rest are touching or under the line. In contrast, the Lijung-Box for ARIMA(4,1,5) shows all the points above the line.
-- AIC and AICc of ARIMA(4,1,4) are smaller than ARIMA(1,1,0). In contrast, BIC of ARIMA(1,1,0) is smaller than that of ARIMA(4,1,4). (i.e. -4.99 < -4.98)
+- Q-statistic p-values: if most points are above the blue lines, we can assume white noise. If this is not the case, there might be some correlation left in the residuals, we might consider to fit another model or add a parameter. Here, the bottom plot of ARIMA(0,1,1) displays two points above the line but the rest are touching or under the line. In contrast, the Lijung-Box for ARIMA(4,1,4) shows all the points above the line.
+- AIC and AICc of ARIMA(4,1,4) are smaller than ARIMA(0,1,1). In contrast, BIC of ARIMA(0,1,1) is smaller than that of ARIMA(4,1,4). (i.e. -4.99 < -4.98)
 
 ### Forecasting
 
 ```{r forecast-auto.arima}
-# Creating test and train dataset
-d_train <- window(ts_meta, end = c(2021, 150))
+# Creating 2 windows 
+## From the beginning to day 150, 2021
+d_actual <- window(ts_meta, end = c(2021, 150))
+## From the beginning to day 180, 2021
 d_test <- window(ts_meta, end = c(2021, 180))
 
 # Forecasting 30 days using astsa package 
+## ARIMA(0,1,1)
 sarima.for(d_train, n.ahead = 30, 0, 1, 1)
 lines(d_test)
 
+## ARIMA(4,1,4)
 sarima.for(d_train, n.ahead = 30, 4, 1, 4)
 lines(d_test)
 
@@ -269,5 +273,5 @@ accuracy(fit_arima)
 
 Observations:
 
-- MAPE of ARIMA(4,1,4) < MAPE of ARIMA(0,1,1) but slightly different
-- 
+- MAPE of ARIMA(4,1,4) is slightly smaller than MAPE of ARIMA(0,1,1)
+- Overall, the two models have around 26% of error on average prediction compared to the true value. 
