@@ -44,11 +44,11 @@ for (Ticker in tickers_index) {
     Meta,
     getSymbols.yahoo(
       Ticker,
-      from = "2016-11-30",
-      to = "2021-11-30",          # 5 years
-      periodicity = "daily",
+      from = "2015-01-01",
+      to = "2021-11-30",          
+      periodicity = "weekly",
       auto.assign = FALSE
-    )[, 6]                        # Only adjusted close
+    )[, 6]                        # Only adjusted close price
   )
 }
 
@@ -61,9 +61,6 @@ d_meta <- d_meta %>% select(index, value) %>%
 
 # Glimpse on the data
 glimpse(d_meta)
-
-# Create timeseries object from meta price with frequency 260
-ts_meta <- ts(d_meta$price_meta, frequency = 260)
 ```
 
 # Descriptive analysis
@@ -87,18 +84,21 @@ Meta price plot displays multiplicative trend and multiplicative seasonality. Th
 adf.test(Meta)
 ```
 
-p-value = 0.67 > $\alpha$ of 0.05: fail to reject $H_{0}$, this time series is not stationary.
+p-value = 0.5 > $\alpha$ of 0.05: fail to reject $H_{0}$, this time series is not stationary.
 
 ```{r ADF-test-log-price}
 # Conduct ADF test for logged price
 adf.test(log(Meta))
 ```
 
-p-value = 0.49 > $\alpha$ of 0.05: fail to reject $H_{0}$, this log-transformed time series is not stationary.
+p-value = 0.18 > $\alpha$ of 0.05: fail to reject $H_{0}$, this log-transformed time series is not stationary.
 
 ### Decompose the time series
 
 ```{r decompose-ts}
+# Create timeseries object with frequency 260 days/year
+ts_meta <- ts(d_meta$price_meta, start = c(2015,1), frequency = 52)
+
 # Decompose according to TSA module
 meta_decomposed <- decompose(ts_meta)
 plot(meta_decomposed)
@@ -119,7 +119,7 @@ colnames(returns_meta)<-"returns_meta"
 
 # Histogram
 histogram_meta_return <- ggplot(returns_meta, mapping = aes(x = returns_meta)) +
-  geom_histogram(color="black", fill = "grey", bins = 50) +
+  geom_histogram(color="black", fill = "grey", bins = 30) +
   #geom_density(alpha=.2, color ="blue") +
   scale_x_continuous() +
   labs(title = "Histogram and boxplot of Meta returns") +
@@ -144,8 +144,8 @@ The histogram of Meta returns looks left-skewed but let's check the basic statis
 psych::describe(returns_meta)
 ```
 
-* Skew = -1.05: Substantial skewed distribution with long left tail. Remarkably, there are two data points on the far left presenting the two negative returns.
-* Kurtosis = 12.83: Leptokurtic distribution with long tails and concentrated toward the mean. ^[https://www.investopedia.com/terms/k/kurtosis.asp]
+* Skew = -0.56: Moderately skewed distribution with some tails. Remarkably, there are two data points on the far left presenting the two negative returns.
+* Kurtosis = 4.75: Leptokurtic distribution with long tails and concentrated toward the mean. Compared to a normal distribution, its tails are longer and fatter, and often its central peak is higher and sharper. ^[https://www.investopedia.com/terms/k/kurtosis.asp]
 
 ```{r plot-return}
 # Plot the returns
@@ -173,17 +173,19 @@ To fit an ARIMA model, we must perform preliminary checks:
 
 ### Manually choosing model
 
-```{r acf-pacf-returns-meta}
-# ACF & PACF of returns_meta
-tsdisplay(log(Meta))
+```{r acf-pacf-log-meta}
+# ACF & PACF of logged meta
+tsdisplay(log(Meta), points = FALSE)
 ```
 
-First, ACF shows gradual decay and PACF clear cuts off at lag 1. 
+Observations:
 
+- ACF decays in a linear fashion and stays outside of the confidence band.
+- PACF is almost at 1 at lag 1, clear cuts off at lag 1. 
 
 ```{r}
 # Identifying p, q of the ARIMA(p,1,q)-model by testing different specifications
-max.order <- 8 # We only allow a maximum of 8 AR- and/or MA-terms 
+max.order <- 6 # We only allow a maximum of 8 AR- and/or MA-terms 
 d <- 1         # we difference at lag 1 then the time series became stationary
 
 # Defining the matrix in for values of the AICs for different model specifications are stored
@@ -208,7 +210,7 @@ ma <- as.numeric(colnames(arima_aic)[index[2]])
 arima <- Arima(y=log(Meta), order=c(ar,1,ma), include.constant = TRUE)
 ```
 
-Using matrix to calculate and choose the min of AIC, the result is ARIMA(4,1,5) with drift.
+Using matrix to calculate and choose the min of AIC, the result is ARIMA(5,1,5) with drift.
 
 ### Auto-Arima
 
@@ -216,39 +218,55 @@ Using matrix to calculate and choose the min of AIC, the result is ARIMA(4,1,5) 
 # Fit an auto-arima
 fit_auto_ari <- auto.arima(y = log(Meta), ic = c("aicc", "aic", "bic"))
 fit_auto_ari
+
+auto.arima(y = log(Meta), ic = "aic")
 ```
 
-Using auto.arima, we got ARIMA(1,1,0) with drift. 
+Using auto.arima, we got ARIMA(0,1,1) with drift. 
 
 Check again why there is the differences like this from the previous part and this part.
 
 ### Residual analysis
 
-The goal of this part is to ensure that the residuals are white Gaussian noise. After getting ARIMA(1,1,0) from auto.arima, we evaluate the residuals of this model. 
+The goal of this part is to ensure that the residuals are white Gaussian noise. After getting two ARIMA models, we evaluate the residuals of these model. 
 
-```{r residual-check-auto-arima}
+```{r residual-check-auto-arima, results='hide',fig.keep='all'}
 # Use sarima from package astsa because many plots shown
-# Check residuals ARIMA(1,1,0)
-sarima(log(Meta), 1,1,0, Model = FALSE)
+# Check residuals ARIMA(0,1,1)
+sarima(log(Meta), 0,1,1)
 
-## Check residuals ARIMA(4,1,5)
-sarima(log(Meta), 4,1,5, Model = FALSE)
+## Check residuals ARIMA(5,1,5)
+sarima(log(Meta), 5,1,5)
 ```
 
 Observations:
 
-- Standardized residuals: hard to say if there is an obvious pattern.
+- Standardized residuals: do not show an obvious pattern.
 - Sample ACF of residuals: 95% of the ACF values should be between the confidence band. 
 - Normal Q-Q plot: if the residuals are normal, the points will be in the blue line. However, there are often extreme value on the ends as in the graph. If there are no huge departures from the line, the normal assumption is reasonable. 
-- Q-statistic p-values: if most points are above the blue lines, we can assume white noise. If this is not the case, there might be some correlation left in the residuals, we might consider to fit another model or add a parameter. Here, the bottom plot of ARIMA(1,1,0) displays some points above the line but many are touching or under the line. In contrast, the Lijung-Box for ARIMA(4,1,5) shows all the points above the line.   
+- Q-statistic p-values: if most points are above the blue lines, we can assume white noise. If this is not the case, there might be some correlation left in the residuals, we might consider to fit another model or add a parameter. Here, the bottom plot of ARIMA(0,1,1) displays all points avove the line. In contrast, the Lijung-Box for ARIMA(5,1,5) exhibits some points touching the line and one point under the line.
+- AIC and AICc of ARIMA(5,1,5) are smaller than ARIMA(0,1,1). In contrast, BIC of ARIMA(0,1,1) is smaller than that of ARIMA(5,1,5). (i.e. -3.53 < -3.44)
 
 
 ### Forecasting
 
 ```{r forecast-auto.arima}
 # Creating test and train dataset
+d_train <- window(ts_meta, end = c(2021, 30))
+d_test <- window(ts_meta, end = c(2021, 49))
 
-# Forecasting 60 days
+# Forecasting 30 days using astsa package
+sarima.for(d_train, n.ahead = 19, 1, 1, 0)
+lines(d_test)
+
+oil <- window(astsa::oil, end = 2006)
+oilf <- window(astsa::oil, end = 2007)
+sarima.for(oil, n.ahead = 52, 1, 1, 0)
+lines(oilf)
+
+str(oil)
+
+# Forecasting 60 days using forecast
 pred <- forecast(fit_auto_ari, level = 0.95, h = 60)
 plot(pred, ylab="Meta")
 ```
