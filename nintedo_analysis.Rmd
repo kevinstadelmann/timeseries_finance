@@ -3,6 +3,8 @@ title: "Nintendo Analysis"
 output: pdf_document
 ---
 
+# Introduction
+
 ```{r setup, include=FALSE}
 setwd("~/timeseries_finance")
 ```
@@ -23,18 +25,23 @@ library(rmgarch)
 
 ```
 
+# ARIMA Model
+
 ```{r load date}
 
-data <- read.csv('nintendo_daily.csv')
+#data <- read.csv('nintendo_daily.csv')
+
+getSymbols("NTDOY", from = '2013-01-01', to = '2021-12-01')
+head(NTDOY)
 
 ```
 
-# Overview
+## Overview
 
 ```{r Overview}
-summary(data)
-ts_nintendo <- ts(data$value, frequency = 260)
-
+#summary(data)
+ts_nintendo <- ts(NTDOY$NTDOY.Close, frequency = 260)
+plot(ts_nintendo)
 
 ### log transformation
 #plot(ts_nintendo_log)
@@ -98,6 +105,7 @@ arima_model <- auto.arima(ts_nintendo_diff_train, stationary = TRUE, ic = c("aic
 
 checkresiduals(arima_model)
 ```
+## Forecasting
 
 ```{r Forecasting}
 arima <- arima(ts_nintendo_diff_train, order = c(0,0,1))
@@ -108,12 +116,56 @@ a <- ts(ts_nintendo_diff)
 forecast_ori %>% autoplot() + autolayer(a)
 ```
 
-# GARCH
+# Univariate GARCH Model
+
+In this chapter we mainly use the functionality of the "rugarch" package, which was written by Alexios Galanos.
 
 ## Data preparation
 
+When we are dealing with volatility models, we cannot use "just" the stock prices. We need the returns on a daily/weekly basis.
+
 ```{r Data preparation}
 
-return_nintento <- dailyReturn(ts_nintendo)
+return_nintento <- dailyReturn(NTDOY$NTDOY.Close)
+
+chartSeries(return_nintento)
 
 ```
+
+## Model preparation
+
+Here we let R know about which GARCH model type we want to estimate. The function `ugarchspec( )` is
+used for specifing the GARCH model.
+
+```{r}
+
+ug_spec = ugarchspec()
+ug_spec
+
+```
+
+In the ug_spec we already see that the standard model is an ARMA(1,1) model, which is also the outcome of the ARIMA Model before ARIMA(1,0,1) -> ARMA(1,1). That's why we leave the standard model.
+
+## Model estimation
+
+After the model specification for the estimation, we need to find the best parameters.
+
+```{r}
+ugfit = ugarchfit(spec = ug_spec, data = return_nintento)
+
+```
+Outcome for volatility specification of GARCH:
+omega ->  variance intercept parameter
+alpha1 -> coefficient to the squared residuals
+beta1 ->  coefficient to the lagged variance
+
+Furthermore, `ugfit` contains now all the information of the GARCH model. In this object you can
+find two slots, @fit and @model. Each of these contains a range of different parameters, whic hcan be read
+out with the `names()` function.
+
+```{r}
+names(ugfit@model)
+```
+
+
+## Model Forecasting
