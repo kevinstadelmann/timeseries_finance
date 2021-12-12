@@ -155,6 +155,8 @@ psych::describe(returns_meta)
 ```{r plot-return}
 # Plot the returns
 plot(returns_meta)
+
+
 ```
 
 As expected from Kurtosis, the plot of returns exhibits constant trend around the mean of 0. Nevertheless, the return variability changes and is not constant over time (i.e. high volatility). We test ADF once more time with the returns:
@@ -167,6 +169,15 @@ adf.test(returns_meta)
 p-value = 0.01 < $\alpha$: reject $H_{0}$: The continuous returns are stationary. 
 
 # Fitting models
+
+## Train and test data
+
+The time series are divided into train (day 1 2015 - day 150 2021) and test (day 151 2021 - day 180 2021) sets.
+
+```{r train-test-split}
+train <- window(ts_meta, start = c(2015, 1), end=c(2021, 150))
+test <- window(ts_meta, start=c(2021, 151), end = c(2021, 180))
+```
 
 ## ARIMA
 
@@ -201,7 +212,7 @@ colnames(arima_aic) <- c(0:max.order) # Order of MA(q) in columns
 # Calculating and storing the AICs for different model specifications
 for(i in 0:max.order){
   for(j in 0:max.order){
-    arima_aic[i+1,j+1] <- Arima(y=log(Meta), order=c(i,d,j), include.constant = TRUE)$aic
+    arima_aic[i+1,j+1] <- Arima(y=log(train), order=c(i,d,j), include.constant = TRUE)$aic
   }
 }
 
@@ -211,7 +222,7 @@ ar <- as.numeric(rownames(arima_aic)[index[1]])
 ma <- as.numeric(colnames(arima_aic)[index[2]])
 
 # Estimating the optimal ARIMA-model and testing for significance of the coefficients
-fit_arima <- Arima(y=log(Meta), order=c(ar,1,ma), include.constant = TRUE)
+fit_arima <- Arima(y=log(train), order=c(ar,1,ma), include.constant = TRUE)
 ```
 
 Using matrix to calculate and choose the min of AIC, the result is ARIMA(4,1,4) with drift.
@@ -220,7 +231,7 @@ Using matrix to calculate and choose the min of AIC, the result is ARIMA(4,1,4) 
 
 ```{r auto-arima}
 # Fit an auto-arima
-fit_auto_ari <- auto.arima(y = log(Meta), ic = "aic", trace = TRUE)
+fit_auto_ari <- auto.arima(y = log(train), ic = "aic", trace = TRUE)
 fit_auto_ari
 
 # Which one ???
@@ -231,33 +242,30 @@ Using auto.arima, we got ARIMA(0,1,1) with drift.
 
 ### Residual analysis
 
-The goal of this part is to ensure that the residuals are white Gaussian noise. After getting ARIMA(0,1,1) from auto.arima, we evaluate the residuals of this model. 
+The goal of this part is to ensure that the residuals are white Gaussian noise. After getting ARIMA(0,1,1) from auto.arima and ARIMA(4,1,4) from the matrix, we evaluate the residuals of these two models. `Sarima()` function is a very compacted to get all of needed graphs at once, hence we use it here to analyse the residuals:
 
 ```{r residual-check-auto-arima, results='hide',fig.keep='all'}
 # Use sarima from package astsa because many plots shown
 # Check residuals ARIMA(0,1,1)
-sarima(log(Meta), 0,1,1)
+sarima(log(train), 0,1,1)
 
 ## Check residuals ARIMA(4,1,4)
-sarima(log(Meta), 4,1,4)
-
-sarima((Meta), 3,1,3)
-
+sarima(log(train), 4,1,4)
 ```
 
 Observations:
 
 - Standardized residuals: hard to say if there is an obvious pattern.
 - Sample ACF of residuals: 95% of the ACF values should be between the confidence band. ARIMA(4,1,4) has more ACF stay in the confidence range. 
-- Normal Q-Q plot: if the residuals are normal, the points will be in the blue line. However, there are often extreme value on the ends as in the graph. If there are no huge departures from the line, the normal assumption is reasonable. 
+- Normal Q-Q plot: if the residuals are normal, the points will be in the blue line. However, there are often extreme value on the ends as in the graph. If there are no huge departures from the line, the normal assumption is reasonable.
 - Q-statistic p-values: if most points are above the blue lines, we can assume white noise. If this is not the case, there might be some correlation left in the residuals, we might consider to fit another model or add a parameter. Here, the bottom plot of ARIMA(0,1,1) displays two points above the line but the rest are touching or under the line. In contrast, the Lijung-Box for ARIMA(4,1,4) shows all the points above the line.
-- AIC and AICc of ARIMA(4,1,4) are smaller than ARIMA(0,1,1). In contrast, BIC of ARIMA(0,1,1) is smaller than that of ARIMA(4,1,4). (i.e. -4.99 < -4.98)
+- AIC and AICc of ARIMA(4,1,4) are smaller than ARIMA(0,1,1). In contrast, BIC of ARIMA(0,1,1) is smaller than that of ARIMA(4,1,4). (i.e. -4.98 < -4.97)
 
 ### Validation by fit inspection
 
 ```{r actual-resid-plot}
-plot(log(d_meta$price_meta))
-lines(log(d_meta$price_meta) - resid(fit_arima), col = "blue")
+plot(log(train))
+lines(log(train) - resid(fit_arima), col = "blue")
 legend(x = "bottomright",          
        legend = c("Actual price", "Fitted model price"),
        lty = c(1, 1),           
@@ -267,18 +275,11 @@ title("Fitted model price and actual price")
 
 The plot indicates that the model fits quite well. 
 
-
 ### Forecasting
 
 Conclusion: Our chosen model is ARIMA(4,1,4). Even though ARIMA(0,1,1) has lower BIC, BIC typically leads to a more conservative model specification as the penalty for the number of coefficients to be estimated is higher than for AIC ^[Bieri, D. (2021)]. In contrast, ARIMA(4,1,4) leads to lower AIC and AICc. Also, we selected this model based on our residual diagnostics as the residual of ARIMA(4,1,4)'s noise is white. 
 
-```{r train-test-split}
-train <- window(ts_meta, end=c(2021,180))
-test <- window(ts_meta, start=c(2021, 150))
-```
-
-
-```{r forecast-auto.arima}
+```{r forecast-arima}
 # Creating 2 windows 
 ## From the beginning to day 150, 2021
 window1_meta <- window(ts_meta, end = c(2021, 150))
@@ -290,32 +291,52 @@ sarima.for(log(window1_meta), n.ahead = 30, 4, 1, 4)
 lines(log(window2_meta))
 
 # Forecasting 60 days using forecast
-pred <- forecast(fit_arima, level = 0.95, h = 60)
-autoplot(pred, ylab="Meta")
+pred_arima <- forecast(fit_arima, level = 0.95, h = 60)
+autoplot(pred_arima, ylab="Meta")
 ```
 
 ### Measuring model accuracy
 
-```{r accuracy-auto-arima-measurement}
-# Check RMSE and MAPE of the fit_auto_ari
+```{r accuracy-comparison}
+# Check RMSE and MAPE of the fit_auto_ari ARIMA(0,1,1)
 accuracy(fit_auto_ari)
 
-# Check RMSE and MAPE of the fit_arima
+# Check RMSE and MAPE of the fit_arima ARIMA(4,1,4)
 accuracy(fit_arima)
 ```
 
 Observations:
 
-- MAPE of ARIMA(4,1,4) is slightly smaller than MAPE of ARIMA(0,1,1)
+- MAPE and RMSE of ARIMA(4,1,4) are slightly smaller than MAPE of ARIMA(0,1,1)
 - Overall, the two models have around 26% of error on average prediction compared to the true value. 
+
+```{r accuracy-train-test-set}
+# Fit the chosen model ARIMA(4,1,4) for the test data
+fit_arima_test <- Arima(log(test), model = fit_arima)
+
+# Check RMSE & MAPE for the test data
+accuracy(fit_arima_test)
+
+# Check RMSE & MAPE for the train data
+accuracy(fit_arima)
+
+# Check RMSE & MAPE for the whole data
+fit_arima_all <-  Arima(log(Meta), order=c(4,1,4), include.constant = TRUE)
+accuracy(fit_arima_all)
+```
+
+Observations:
+
+- RMSE of test data = 0.019, which is slightly lower than the train data (0.02)
+- In contrasts, MAPE of test data is slightly lower than the train data (0.255 < 0.261)
+- When we fit similar model for the whole time series, RMSE = 0.02 & MAPE =  0.26
 
 ## GARCH
 
 GARCH model is used to predict volatility of the future returns. GARCH model is used to predict volatility of the future returns. To be more specific, the GARCH approach models the variance using the prediction errors $e_{t}$ (also called shocks or unexpected returns). The parameter $\alpha$ determines the reactivity to $e_{t}^2$, while $\beta$ is the weight on the previous variance prediction. 
 
-
 ```{r volatility}
-# Discrete return 
+# Discrete return with log transform
 meta_discrete_returns <- CalculateReturns(Meta)
 
 ## Remove the 1st row because of NA value
@@ -355,9 +376,13 @@ plot(abs(e))
 acf(abs(na.omit(e)))
 ```
 
-The top plot shows the waves in the absolute prediction errors. They indicate the presence of high and low volatility clusters. In the bottom plot, we can see the positive autocorrelations in the absolute prediction errors. Many of them are above 0.1.
+The top plot shows the waves in the absolute prediction errors. They indicate the presence of high and low volatility clusters. In the bottom plot, we can see the positive autocorrelations in the absolute prediction errors. Many of them are above 0.1. 
+
+Here, we use the `rugarch` package to fit the GARCH models for the data.
 
 ### GARCH volatility
+
+We start first with the simple standard GARCH(1,1):
 
 ```{r sGARCH}
 par(mfrow = c(1,1))
@@ -380,9 +405,7 @@ garchvol <- sigma(garchfit)
 plot(garchvol["2020"])
 ```
 
-
-For Meta, skew < 1 indicating a negatively skewed distribution. Degree of freedom shape is around 4, indicating fat tails. 
-
+For Meta, skew $\approx$ 1 indicating a moderate skewed distribution. Degree of freedom shape is around 4, indicating fat tails. 
 
 ```{r garch-prediction}
 # Compute unconditional volatility
@@ -399,19 +422,15 @@ garchforecast <- ugarchforecast(fitORspec = garchfit,
 print(sigma(garchforecast))
 ```
 
-
 A portfolio that invests a percentage $w$ in a risky asset (with volatility $\sigma$) and keeps $1 - w$ on a risk-free bank deposit account has volatility equal to:
 
 $$\sigma_{p} = w\sigma_{t}$$
-
 How to set $w$? One approach is volatility targeting: $w$ is such that the predicted annualized portfolio volatility equals a target level, say 5%. Then: 
 
 $$w^* = \frac{0.05}{\sigma_{t}}$$
-
 GARCH volatility predictions are of direct practical use in portfolio allocation. According to the two-fund separation theorem of James Tobin, we should invest a proportion $w$ of our wealth in a risky portfolio and the remainder in a risk free asset, like a US Treasury bill.
 
 When we target a portfolio with 5% annualized volatility, and the annualized volatility of the risky asset is $\sigma_{t}$, then we should invest $\frac{0.05}{\sigma_{t}}$ in the risky asset.
-
 
 ```{r}
 # Compute the annualized volatility
@@ -637,13 +656,73 @@ gjrgarchpreds <- as.data.frame(garchroll)
 e  <- gjrgarchpreds$Realized - gjrgarchpreds$Mu  
 d  <- e^2 - gjrgarchpreds$Sigma^2
 gjrgarchMSE <- mean(d^2)
+gjrgarchMSE
 ```
 
+Let's plot the squared residuals and the estimated conditional variance:
+
+```{r}
+var_flex <- flexgarchfit@fit$var
+resid2_flex <- flexgarchfit@fit$residuals^2
+plot(resid2_flex, type = "l")
+lines(var_flex, col = "green")
+# How to get MAPE from this model ???
+```
 
 ### Forecasting
 
 ```{r}
-# How to get MAPE for the flexgarchfit model???
+garchforecast <- ugarchforecast(fitORspec = flexgarchfit, n.head = 30)
+```
+
+```{r MAPE-GARCH}
+# MAPE
+ape <- abs(residuals(flexgarchfit)) / (sigma(flexgarchfit) - gjrerrors)
+mean(ape)
+
+mean(abs(flexgarchfit@fit$residuals) / (sigma(flexgarchfit) - gjrerrors))
+
+f <- forecast(flexgarchfit, h = 12)
+accuracy(f$mean, meta_discrete_returns)
+```
+
+### Way 2: Selecting GARCH order by AIC
+
+As can be seen, the previous part with GARCH(1,1) model have a very high number of errors.
+A 3x3 matrix is created to investigate all models from GARCH (1,1) up to and including GARCH (3,3) and tabulate their respective AIC values, observing which has the best relative fit.
+
+```{r GARCH-order-selection}
+# Create 3x3 matrix
+aic_garch <- matrix(0,3,3)
+
+# Loop to run garch order from 1 -> 3
+for (i in 1:3) {
+  for (j in 1:3) {
+    garch_spec = ugarchspec(variance.model = list(garchOrder = c(i,j)), 
+                            mean.model = list(armaOrder = c(0,0), include.mean = FALSE),
+                            distribution.model = "std")
+    garch_fit = ugarchfit(spec = garch_spec, data = meta_discrete_returns,
+                          solver.control = list(trace = 1))
+    aic_garch[i,j] <- infocriteria(garch_fit)[1]
+  }
+}
+
+# Print the matrix
+aic_garch
+
+# Min value
+min(aic_garch)
+```
+
+We can see that model GARCH(2,3) has the lowest information criteria. Now, we will fit the model:
+
+```{r fit-GARCH-2-3}
+garch23_spec <- ugarchspec(variance.model = list(garchOrder=c(2,3)), 
+                          mean.model = list(armaOrder=c(0,0), include.mean = FALSE),
+                          distribution.model = "std")
+
+garch23_fit <- ugarchfit(spec = garch23_spec, data = meta_discrete_returns,
+                        solver.control = list(trace = 1))
 ```
 
 
