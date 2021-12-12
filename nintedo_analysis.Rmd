@@ -1,28 +1,119 @@
 ---
 title: "Nintendo Analysis"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+setwd("~/timeseries_finance")
 ```
 
-## R Markdown
+```{r load-packages, include=FALSE}
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(tseries)          # for ts object, ADF test
+library(forecast)         # to predict price
+library(zoo)
+library(caTools)
+library(rugarch)
+library(quantmod)
+library(rmgarch)
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
-```{r cars}
-summary(cars)
 ```
 
-## Including Plots
+```{r load date}
 
-You can also embed plots, for example:
+data <- read.csv('nintendo_daily.csv')
 
-```{r pressure, echo=FALSE}
-plot(pressure)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+# Overview
+
+```{r Overview}
+summary(data)
+ts_nintendo <- ts(data$value, frequency = 260)
+
+
+### log transformation
+#plot(ts_nintendo_log)
+ts_nintendo_log <- log(ts_nintendo)
+
+plot(ts_nintendo_log, main="Stock Price Nintento log transformed 2016-2021")
+# https://rpubs.com/kevinTongam/arimaforecast
+```
+
+```{r Autocorrelation}
+acf_log <- acf(ts_nintendo_log, lag.max = 320)
+pacf_log <- pacf(ts_nintendo_log, lag.max = 320)
+```
+
+```{r Differencing}
+ts_nintendo_diff <- diff(ts_nintendo_log, lag = 1)
+
+# fill missing data with the previous value
+ts_nintendo_diff <- na.locf(ts_nintendo_diff,
+                            na.rm = TRUE,
+                            fromLast = TRUE)
+plot(ts_nintendo_diff)
+```
+
+```{r Augmented Dickey Fuller Test}
+# Additional test to prove stationarity
+adf.test(ts_nintendo_log)
+```
+
+```{r Additional-Stationary Test}
+# Additional test to prove stationarity
+adf_diff <- adf.test(ts_nintendo_diff, alternative = c("stationary", "explosive"), 
+                k = 0)
+adf_diff
+
+``````
+
+```{r Autocorrelation}
+# Additional test to prove stationarity
+acf_diff <- acf(ts_nintendo_diff)
+
+length(ts_nintendo_diff)
+
+
+``````
+
+```{r Partical Autorcorrelation}
+
+acf_diff <- pacf(ts_nintendo_diff)
+
+
+```
+```{r Train-data split}
+ts_nintendo_diff_train <- ts_nintendo_diff[1:1200]
+```
+
+```{r Fitting ARIMA Model}
+set.seed(123)
+arima_model <- auto.arima(ts_nintendo_diff_train, stationary = TRUE, ic = c("aicc", "aic", "bic"), 
+                          trace = TRUE)
+
+checkresiduals(arima_model)
+```
+
+```{r Forecasting}
+arima <- arima(ts_nintendo_diff_train, order = c(0,0,1))
+
+
+forecast_ori <- forecast(arima, h = 100)
+a <- ts(ts_nintendo_diff)
+forecast_ori %>% autoplot() + autolayer(a)
+```
+
+# GARCH
+
+## Data preparation
+
+```{r Data preparation}
+
+return_nintento <- dailyReturn(ts_nintendo)
+
+```
