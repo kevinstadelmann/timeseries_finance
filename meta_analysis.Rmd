@@ -2,8 +2,59 @@
 title: "Meta Analysis"
 author: "Quyen Duong"
 date: "Last edited `r format(Sys.time(), '%d %B %Y')`"
-output: pdf_document
+output: 
+  html_document:
+    toc: true
+    toc_float: 
+      collapsed: false 
+      smooth_scroll: false
+    toc_depth: 5
+    number_section: true 
 ---
+
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 14px;
+  }
+td {  /* Table  */
+  font-size: 12px;
+}
+h1.title {
+  font-size: 42px;
+  font-weight: bold;
+  text-align: center;
+  color: #226d8c;
+  opacity: 0.8;
+}
+h4.author { 
+  font-size: 20px;
+  color: #226d8c;
+  text-align: center;
+}
+h4.date { 
+  font-size: 15px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkRed;
+  text-align: center;
+}
+h1 { /* Header 1 */
+  font-size: 28px;
+  color: Black;
+  font-weight: bold;
+}
+h2 { /* Header 2 */
+    font-size: 22px;
+  color: Black;
+  font-weight: bold
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  color: Black;
+  font-weight: bold
+}
+
+</style>
 
 ```{r setup, include = FALSE}
 # Set the default mode for all the chunks
@@ -23,6 +74,8 @@ library(astsa)                 # for ARIMA model, check residual
 library(PerformanceAnalytics)  # compute returns
 library(rugarch)               # for GARCH
 library(xts)
+library(MTS)                   # ARCH test
+library(ie2misc)               # to calculate MAPE
 ```
 
 # Introduction
@@ -155,8 +208,6 @@ psych::describe(returns_meta)
 ```{r plot-return}
 # Plot the returns
 plot(returns_meta)
-
-
 ```
 
 As expected from Kurtosis, the plot of returns exhibits constant trend around the mean of 0. Nevertheless, the return variability changes and is not constant over time (i.e. high volatility). We test ADF once more time with the returns:
@@ -170,16 +221,16 @@ p-value = 0.01 < $\alpha$: reject $H_{0}$: The continuous returns are stationary
 
 # Fitting models
 
-## Train and test data
+## ARIMA
 
-The time series are divided into train (day 1 2015 - day 150 2021) and test (day 151 2021 - day 180 2021) sets.
+### Train and test data
+
+The time series are divided into train (day 1 2015 - day 80 2021) and test (day 80 2021 - day 180 2021) sets.
 
 ```{r train-test-split}
-train <- window(ts_meta, start = c(2015, 1), end=c(2021, 150))
-test <- window(ts_meta, start=c(2021, 151), end = c(2021, 180))
+train <- window(ts_meta, start = c(2015, 1), end=c(2021, 80))
+test <- window(ts_meta, start=c(2021, 81), end = c(2021, 180))
 ```
-
-## ARIMA
 
 To fit an ARIMA model, we must perform preliminary checks:
 
@@ -231,35 +282,30 @@ Using matrix to calculate and choose the min of AIC, the result is ARIMA(4,1,4) 
 
 ```{r auto-arima}
 # Fit an auto-arima
-fit_auto_ari <- auto.arima(y = log(train), ic = "aic", trace = TRUE)
+fit_auto_ari <- auto.arima(y = log(train), ic = "aic", max.order=10,
+                           trace = TRUE, stepwise = FALSE, 
+                           approximation = FALSE, seasonal = FALSE)
 fit_auto_ari
-
-# Which one ???
-auto.arima(y = Meta, ic = "aic")
 ```
 
-Using auto.arima, we got ARIMA(0,1,1) with drift. 
+Using auto.arima with specific parameter indications (stepwise = FALSE, 
+approximation = FALSE, seasonal = FALSE), we got ARIMA(4,1,4) with drift. Without these parameters, the function takes some optimization shortcuts in order to be fast and hence, leading to ARIMA(0,1,1) model. 
 
 ### Residual analysis
 
-The goal of this part is to ensure that the residuals are white Gaussian noise. After getting ARIMA(0,1,1) from auto.arima and ARIMA(4,1,4) from the matrix, we evaluate the residuals of these two models. `Sarima()` function is a very compacted to get all of needed graphs at once, hence we use it here to analyse the residuals:
+The goal of this part is to ensure that the residuals are white Gaussian noise. After getting ARIMA(4,1,4) from the matrix and auto.arima, we evaluate the residuals of these two models. `Sarima()` function is a very compacted to get all of needed graphs at once, hence we use it here to analyse the residuals:
 
 ```{r residual-check-auto-arima, results='hide',fig.keep='all'}
 # Use sarima from package astsa because many plots shown
-# Check residuals ARIMA(0,1,1)
-sarima(log(train), 0,1,1)
-
-## Check residuals ARIMA(4,1,4)
 sarima(log(train), 4,1,4)
 ```
 
 Observations:
 
 - Standardized residuals: hard to say if there is an obvious pattern.
-- Sample ACF of residuals: 95% of the ACF values should be between the confidence band. ARIMA(4,1,4) has more ACF stay in the confidence range. 
+- Sample ACF of residuals: 95% of the ACF values should be between the confidence band. ARIMA(4,1,4) has most of ACF stay in the confidence range. 
 - Normal Q-Q plot: if the residuals are normal, the points will be in the blue line. However, there are often extreme value on the ends as in the graph. If there are no huge departures from the line, the normal assumption is reasonable.
-- Q-statistic p-values: if most points are above the blue lines, we can assume white noise. If this is not the case, there might be some correlation left in the residuals, we might consider to fit another model or add a parameter. Here, the bottom plot of ARIMA(0,1,1) displays two points above the line but the rest are touching or under the line. In contrast, the Lijung-Box for ARIMA(4,1,4) shows all the points above the line.
-- AIC and AICc of ARIMA(4,1,4) are smaller than ARIMA(0,1,1). In contrast, BIC of ARIMA(0,1,1) is smaller than that of ARIMA(4,1,4). (i.e. -4.98 < -4.97)
+- Q-statistic p-values: if most points are above the blue lines, we can assume white noise. If this is not the case, there might be some correlation left in the residuals, we might consider to fit another model or add a parameter. Here, the Lijung-Box for ARIMA(4,1,4) shows all the points above the line.
 
 ### Validation by fit inspection
 
@@ -273,71 +319,86 @@ legend(x = "bottomright",
 title("Fitted model price and actual price")
 ```
 
-The plot indicates that the model fits quite well. 
+The plot indicates that the model fits very well. 
 
 ### Forecasting
 
-Conclusion: Our chosen model is ARIMA(4,1,4). Even though ARIMA(0,1,1) has lower BIC, BIC typically leads to a more conservative model specification as the penalty for the number of coefficients to be estimated is higher than for AIC ^[Bieri, D. (2021)]. In contrast, ARIMA(4,1,4) leads to lower AIC and AICc. Also, we selected this model based on our residual diagnostics as the residual of ARIMA(4,1,4)'s noise is white. 
+Conclusion: Our chosen model is ARIMA(4,1,4) because that our residual diagnostics as the residual of ARIMA(4,1,4)'s noise is white and their AIC & AICc are lowest. 
 
 ```{r forecast-arima}
 # Creating 2 windows 
-## From the beginning to day 150, 2021
-window1_meta <- window(ts_meta, end = c(2021, 150))
+## From the beginning to day 100, 2021
+window1_meta <- window(ts_meta, end = c(2021, 80))
 ## From the beginning to day 180, 2021
 window2_meta <- window(ts_meta, end = c(2021, 180))
 
-# Forecasting 30 days using astsa package 
-sarima.for(log(window1_meta), n.ahead = 30, 4, 1, 4)
+# Forecasting 29 days using astsa package 
+sarima.for(log(window1_meta), n.ahead = 100, 4, 1, 4)
 lines(log(window2_meta))
 
-# Forecasting 60 days using forecast
-pred_arima <- forecast(fit_arima, level = 0.95, h = 60)
+# Forecasting 29 days using forecast
+pred_arima <- forecast(fit_arima, level = 0.95, h = 29)
 autoplot(pred_arima, ylab="Meta")
 ```
 
 ### Measuring model accuracy
 
-```{r accuracy-comparison}
-# Check RMSE and MAPE of the fit_auto_ari ARIMA(0,1,1)
-accuracy(fit_auto_ari)
+To measure the model accuracy, we check the Root Mean Square Error (RMSE) and the (MAPE)
 
-# Check RMSE and MAPE of the fit_arima ARIMA(4,1,4)
-accuracy(fit_arima)
-```
+- RMSE: the standard deviation of the residuals (prediction errors). Residuals are a measure of how far from the regression line data points are; RMSE is a measure of how spread out these residuals are.^[https://www.statisticshowto.com/probability-and-statistics/regression-analysis/rmse-root-mean-square-error/] 
 
-Observations:
+- MAPE: A major problem arises when comparing forecasting methods and models across different time series with different units. One of the most commonly used measures that avoids this problem is MAPE.^[https://www.statworx.com/at/blog/what-the-mape-is-falsely-blamed-for-its-true-weaknesses-and-better-alternatives/#h-what-the-mape-is-falsely-blamed-for]  
 
-- MAPE and RMSE of ARIMA(4,1,4) are slightly smaller than MAPE of ARIMA(0,1,1)
-- Overall, the two models have around 26% of error on average prediction compared to the true value. 
-
-```{r accuracy-train-test-set}
-# Fit the chosen model ARIMA(4,1,4) for the test data
-fit_arima_test <- Arima(log(test), model = fit_arima)
-
-# Check RMSE & MAPE for the test data
-accuracy(fit_arima_test)
-
+```{r accuracy-ARIMA-train-test-set}
 # Check RMSE & MAPE for the train data
 accuracy(fit_arima)
 
 # Check RMSE & MAPE for the whole data
 fit_arima_all <-  Arima(log(Meta), order=c(4,1,4), include.constant = TRUE)
 accuracy(fit_arima_all)
+
+# Test data
+## Fit the chosen model ARIMA(4,1,4) for the test data
+fit_arima_test <- Arima(log(test), model = fit_arima)
+
+### Way 1: Check RMSE & MAPE for the test fit model
+accuracy(fit_arima_test)
+
+### Way 2: Check RMSE & MAPE for the prediction from train data to the test data
+accuracy(pred_arima$mean, log(test)) 
+
+### Way 3: Same as way 2 but compute by hand
+mean(abs((log(test) - pred_arima$mean)/log(test)))
 ```
 
 Observations:
 
-- RMSE of test data = 0.019, which is slightly lower than the train data (0.02)
-- In contrasts, MAPE of test data is slightly lower than the train data (0.255 < 0.261)
-- When we fit similar model for the whole time series, RMSE = 0.02 & MAPE =  0.26
+- Train model forecast on the test data: MAPE = 0.346, RMSE = 0.025
+- Test data: MAPE = 0.221, RMSE = 0.0173
+- Train data: MAPE = 0.261, RMSE = 0.0196
+- The whole time series: MAPE = 0.261, RMSE = 0.0196
+- Overall, the  model forecast for the test data have around 34% of error on average prediction compared to the true value. 
 
-## GARCH
+## Way 1: Basic GARCH
 
-GARCH model is used to predict volatility of the future returns. GARCH model is used to predict volatility of the future returns. To be more specific, the GARCH approach models the variance using the prediction errors $e_{t}$ (also called shocks or unexpected returns). The parameter $\alpha$ determines the reactivity to $e_{t}^2$, while $\beta$ is the weight on the previous variance prediction. 
+GARCH model is used to predict volatility of the future returns. GARCH model is used to predict volatility of the future returns. To be more specific, the GARCH approach models the variance using the prediction errors $e_{t}$ (also called shocks or unexpected returns). The parameter $\alpha$ determines the reactivity to $e_{t}^2$, while $\beta$ is the weight on the previous variance prediction.
+
+### ARCH test
+
+Before applying GARCH, we check whether the data present ARCH effect. This following test is a Lagrange Multiplier test and uses the following hypothesis:
+
+- Ho: Residuals exhibits no ARCH effects.
+- H1: ARCH(lag) effects are present.
+
+```{r arch-test}
+archTest(fit_arima_all$residuals)
+```
+
+p-value < 0.05, we reject Ho. Hence, there are ARCH effects and now we can apply GARCH model. Since there is no obvious way to decide the best GARCH model, we will try different ways.
 
 ```{r volatility}
 # Discrete return with log transform
-meta_discrete_returns <- CalculateReturns(Meta)
+meta_discrete_returns <- CalculateReturns(Meta, method = "log")
 
 ## Remove the 1st row because of NA value
 meta_discrete_returns <- meta_discrete_returns$FB.Adjusted[!is.na(meta_discrete_returns$FB.Adjusted)]
@@ -349,7 +410,7 @@ sd(na.omit(meta_discrete_returns))
 sqrt(252) * sd(meta_discrete_returns)
 ```
 
-For the daily Meta returns, this gives us a daily volatility of around 2% and 32% of annualized volatility.  
+For the daily Meta returns, this gives us a daily volatility of around 2% and 32% of annualized volatility. 
 
 ```{r rolling-volatility-plot}
 chart.RollingPerformance(R = meta_discrete_returns,
@@ -378,9 +439,21 @@ acf(abs(na.omit(e)))
 
 The top plot shows the waves in the absolute prediction errors. They indicate the presence of high and low volatility clusters. In the bottom plot, we can see the positive autocorrelations in the absolute prediction errors. Many of them are above 0.1. 
 
-Here, we use the `rugarch` package to fit the GARCH models for the data.
+### Train and test data
 
-### GARCH volatility
+```{r train-test-garch}
+# Train data for meta_discrete_return from day 1 2015 till day 80 2021
+train_garch <- meta_discrete_returns[1:(length(meta_discrete_returns) - 100)]
+
+# Test data from day 80 to day 180 2021
+test_garch <- meta_discrete_returns[(length(meta_discrete_returns) - 99):length(meta_discrete_returns)]
+```
+
+Here, we use the `rugarch` package to fit the GARCH models for the data and let's start with GARCH(1,1).
+
+### GARCH(1,1)
+
+#### GARCH volatility
 
 We start first with the simple standard GARCH(1,1):
 
@@ -388,12 +461,12 @@ We start first with the simple standard GARCH(1,1):
 par(mfrow = c(1,1))
 
 # Specify a standard GARCH model with constant mean
-garchspec <- ugarchspec(mean.model = list(armaOrder = c(0,0)),
+garchspec <- ugarchspec(mean.model = list(armaOrder = c(4,4)),
                         variance.model = list(model = "sGARCH"), 
                         distribution.model = "sstd") #student t 
 
 # Estimate the model
-garchfit <- ugarchfit(data = meta_discrete_returns, spec = garchspec)
+garchfit <- ugarchfit(data = train_garch, spec = garchspec)
 
 # Inspect the coefficients
 coef(garchfit)
@@ -401,22 +474,18 @@ coef(garchfit)
 # Use the method sigma to retrieve the estimated volatilities 
 garchvol <- sigma(garchfit)
 
-# Plot the volatility for 2020
-plot(garchvol["2020"])
+# Plot the volatility for 2021
+plot(garchvol["2021"])
 ```
 
-For Meta, skew $\approx$ 1 indicating a moderate skewed distribution. Degree of freedom shape is around 4, indicating fat tails. 
+For Meta, skew $\approx$ 1 indicating a moderate skewed distribution. Degree of freedom shape $\approx$ 4, indicating fat tails. 
 
 ```{r garch-prediction}
 # Compute unconditional volatility
 sqrt(uncvariance(garchfit))
 
-# Print last 10 ones in garchvol
-tail(garchvol, 10)
-
 # Forecast volatility 5 days ahead and add 
-garchforecast <- ugarchforecast(fitORspec = garchfit, 
-                                n.head = 5)
+garchforecast <- ugarchforecast(fitORspec = garchfit, n.ahead = 5)
 
 # Extract the predicted volatilities and print them
 print(sigma(garchforecast))
@@ -443,18 +512,18 @@ vt_weights <- 0.05 / annualvol
 plot(merge(annualvol, vt_weights), multi.panel = TRUE)
 ```
 
-### GJR GARCH
+#### GJR GARCH
 
-Negative news about returns affect the variance more than positive news (leverage effect). The GJR GARCH model allows for asymmetric response of variance to positive and negative news. The news impact curve is a helpful tool to visualize the response of the variance to the surprise in returns.
+In the previous sections, we only apply the standard GARCH model. Negative news about returns affect the variance more than positive news (leverage effect). The GJR GARCH model allows for asymmetric response of variance to positive and negative news. The news impact curve is a helpful tool to visualize the response of the variance to the surprise in returns.
 
 ```{r gjr-garch}
 # Specify a GJR GARCH 
-gjr_garchspec <- ugarchspec(mean.model = list(armaOrder = c(0,0)),
+gjr_garchspec <- ugarchspec(mean.model = list(armaOrder = c(4,4)),
                             variance.model = list(model = "gjrGARCH"), 
                             distribution.model = "sstd") #student t 
 
 # Estimate the model
-gjr_garchfit <- ugarchfit(data = meta_discrete_returns, spec = garchspec)
+gjr_garchfit <- ugarchfit(data = train_garch, spec = garchspec)
 
 # Inspect the coefficients
 coef(gjr_garchfit)[2:5]
@@ -471,7 +540,7 @@ plotvol
 
 The red and blue lines look no difference because there have been no financial crisis from 2015 till today. 
 
-### GARCH-in-mean model
+#### GARCH-in-mean model
 
 A GARCH-in-mean model exploits the relationship between the expected return and the variance of the return.The higher the risk in terms of variance, the higher should be the expected return on investment.
 
@@ -482,7 +551,6 @@ A GARCH-in-mean model exploits the relationship between the expected return and 
 
 $$\mu_{t} = \mu + \lambda \sigma_{t}^2$$
 
-
 ```{r GARCH-in-mean-model}
 # Specify GJR GARCH-in-mean model
 mean_garchspec <- ugarchspec(
@@ -491,7 +559,7 @@ mean_garchspec <- ugarchspec(
   distribution.model = "sstd")
 
 # Estimate the model
-mean_garchfit <- ugarchfit(data = meta_discrete_returns, spec = mean_garchspec)
+mean_garchfit <- ugarchfit(data = train_garch, spec = mean_garchspec)
 
 # Print the first two coefficients
 round(coef(mean_garchfit)[1:2], 4)
@@ -501,14 +569,14 @@ plot(fitted(mean_garchfit))
 
 The estimated model for the reward is:
 
-$$ \hat\mu_{t} = 0.0005 + 1.7259 \hat\sigma_{t}^2 $$
-Besides, there are two spikes on 2019 and 2020. 
+$$ \hat\mu_{t} = 0.0005 + 1.4360 \hat\sigma_{t}^2 $$
+Besides, there are two spikes on 2018 and 2020. 
 
-### AR(1)-GJR GARCH
+#### AR(1)-GJR GARCH
 
 For the stock prices, the predicted return $\mu_{t}$ is often time-varying. Hence, we use the in-mean GARCH model with AR(1), MA(1), ARMA(1,1).
 
-The GARCH-in-mean uses the financial theory of a risk-reward trade-off to build a conditional mean mode. We use statistical theory to make a mean model that deploys the correlation between today's return and tomorrow's return. Let's look at AR(1) model. AR(1) predicts the next return using the deviation of the return from its long term mean value $\mu$:
+The GARCH-in-mean uses the financial theory of a risk-reward trade-off to build a conditional mean mode. We use statistical theory to make a mean model that deploys the correlation between today's return and tomorrow's return. Why is that? Because today's return predicts tomorrow's return. Let's look at AR(1) model. AR(1) predicts the next return using the deviation of the return from its long term mean value $\mu$:
 
 $$ \mu_{t} = \mu + \rho(R_{t} - \mu) $$
 
@@ -520,7 +588,7 @@ mean_ar1_garchspec <- ugarchspec(
   distribution.model = "sstd")
 
 # Estimate the model
-mean_ar1_garchfit <- ugarchfit(data = meta_discrete_returns, spec = mean_ar1_garchspec)
+mean_ar1_garchfit <- ugarchfit(data = train_garch, spec = mean_ar1_garchspec)
 
 # Print the first two coefficients
 round(coef(mean_ar1_garchfit)[1:2], 4)
@@ -538,43 +606,46 @@ likelihood(mean_ar1_garchfit)
 infocriteria(mean_ar1_garchfit)
 ```
 
+#### Comparing models
 
-### Measuring model accuracy
-
-Here, we fit two models, one simple (standard GARCH (1,1) model with Student $t$ innovations) and one complex (AR(1) GJR GARCH model with skewed Student $t$ innovations) and compare their likelihood and information criteria. Higher Likelihood can lead to the risk of over-fitting. However, lower information criteria is better.
+Here, we fit two models, one simple (standard GARCH (1,1) model with Student $t$ innovations) and one complex (AR(1) GJR GARCH model with skewed Student $t$ innovations) and compare their mean squared prediction errors (MSE), likelihood and information criteria. Higher Likelihood can lead to the risk of over-fitting. However, lower information criteria is better.
 
 ```{r simple-GARCH}
 # Simple model
-tgarchspec <- ugarchspec(mean.model = list(armaOrder = c(0, 0)),
+tgarchspec <- ugarchspec(mean.model = list(armaOrder = c(4, 4)),
                          variance.model = list(model = "sGARCH", 
                                                variance.targeting = TRUE),
                          distribution.model = "std")
-tgarchfit <- ugarchfit(data = meta_discrete_returns, spec = tgarchspec)
-length(coef(tgarchfit)) # only 5 parameters
+tgarchfit <- ugarchfit(data = train_garch, spec = tgarchspec)
+length(coef(tgarchfit)) # 13 parameters
 ```
 
 ```{r complex-GARCH}
 # Complex model
-flexgarchspec <- ugarchspec(mean.model = list(armaOrder = c(1, 0)),
+flexgarchspec <- ugarchspec(mean.model = list(armaOrder = c(4, 4)),
                             variance.model = list(model = "gjrGARCH"), 
                             distribution.model = "sstd")
-flexgarchfit <- ugarchfit(data = meta_discrete_returns, spec = flexgarchspec)
-length(coef(flexgarchfit)) # we now have 8 parameters
+flexgarchfit <- ugarchfit(data = train_garch, spec = flexgarchspec)
+length(coef(flexgarchfit)) # we now have 14 parameters
 ```
 
 ```{r Mean-squared-prediction-errors}
-# Compute prediction errors
-garcherrors <- residuals(tgarchfit)
-gjrerrors <- residuals(flexgarchfit)
+# MSE
+## MSE for variance prediction of simple model
+mean((sigma(tgarchfit)^2 - (residuals(tgarchfit))^2)^2)
 
-# Compute MSE for variance prediction of simple model
-mean((sigma(tgarchfit)^2 - garcherrors^2)^2)
+## MSE for variance prediction of complex model
+mean((sigma(flexgarchfit)^2 - (residuals(flexgarchfit))^2)^2)
 
-# Compute MSE for variance prediction of complex model
-mean((sigma(flexgarchfit)^2 - gjrerrors^2)^2)
+# RMSE
+## RMSE of simple model
+sqrt(mean((sigma(tgarchfit)^2 - (residuals(tgarchfit))^2)^2))
+
+## RMSE of complex model
+sqrt(mean((sigma(flexgarchfit)^2 - (residuals(flexgarchfit))^2)^2))
 ```
 
-Mean squared prediction errors (MSE) of the complex model is slightly lower than the complex model. 
+MSE and RMSE of the simple model are slightly lower than the complex model. Now, let's move to likelihood and infocriteria:
 
 ```{r likelihood-infocriteria}
 # Simple model
@@ -588,13 +659,15 @@ infocriteria(flexgarchfit)
 
 Observations:
 
-* Likelihood: Complex model (4654) > Simple model (4640)
-* Parameter: Complex model (8) > Simple model (5)
-* Akaike: Complex model (-5.344) < Simple model (-5.332)
+* Likelihood: Complex model (4400) > Simple model (4391)
+* Parameter: Complex model (15) > Simple model (13)
+* Akaike: Complex model (-5.35) < Simple model (-5.34)
 
-Based on these observations, we choose complex model because of higher likelihood and lower criteria information. 
+Based on these observations, we choose complex model `flexgarchfit` because of higher likelihood and lower criteria information. 
 
-### Diagnosing absolute standardized returns
+#### Analyzing the chosen model
+
+##### Diagnosing absolute standardized returns
 
 GARCH model makes strong assumption about the mean and the variance. Thus, it's essential to validate these assumptions. We can do this by analyzing the standardized returns. The fomular of standardized returns is as follows:
 
@@ -619,12 +692,12 @@ Box.test(abs(std_meta_ret), 22, type = "Ljung-Box")
 
 Observations:
 
-* Sample mean of standardized returns = -0.007348 $\approx$ 0 -> good
+* Sample mean of standardized returns = -0.0075 $\approx$ 0 -> good
 * Sample standard deviation of standardized returns =  1.03 $\approx$ 1 -> good
 * For absolute returns: many ACF are high and significant. The variance model does a good job in capturing the volatility dynamics because the ACF of the absolute standardized returns are close to 0. -> good 
-* Ljung box test: Ho: autocorrelations in the absolute standardized returns are 0. We went to have 0 to have a good model. P-value = 0.1517 > 0.05. The model is valid. -> good
+* Ljung box test: Ho: autocorrelations in the absolute standardized returns are 0. We went to have 0 to have a good model. P-value = 0.4 > 0.05. The model is valid. -> good
 
-### Rolling estimation
+##### Rolling estimation
 
 Rolling estimation is the solution to avoid look-ahead bias. Why is that?
 
@@ -657,34 +730,54 @@ e  <- gjrgarchpreds$Realized - gjrgarchpreds$Mu
 d  <- e^2 - gjrgarchpreds$Sigma^2
 gjrgarchMSE <- mean(d^2)
 gjrgarchMSE
+
+# RMSE
+sqrt(gjrgarchMSE)
 ```
 
-Let's plot the squared residuals and the estimated conditional variance:
+#### Forecasting
 
-```{r}
-var_flex <- flexgarchfit@fit$var
-resid2_flex <- flexgarchfit@fit$residuals^2
-plot(resid2_flex, type = "l")
-lines(var_flex, col = "green")
-# How to get MAPE from this model ???
+```{r forecasting-GARCH}
+# Way 1: Using urgarchforecast
+forecast1 <- ugarchforecast(fitORspec = flexgarchfit, n.ahead = 100)
+
+# For comparison, we make the forecasts from way 1 as vector
+f1 <- as.vector(forecast1@forecast$seriesFor)
+f1_sigma <- as.vector(forecast1@forecast$sigmaFor)
+
+# Way 2: Boostrap forecast
+forecast2 <- ugarchboot(flexgarchfit, method=c("Partial","Full")[1],
+                        n.ahead = 100, n.bootpred = 1000, n.bootfit = 1000)
+
+# For comparison, we make the forecasts from way 2 as vector
+f2 <- as.vector(forecast2@forc@forecast$seriesFor)
+f2_sigma <- as.vector(forecast2@forc@forecast$sigmaFor)
 ```
 
-### Forecasting
+#### Measuring model accuracy
 
-```{r}
-garchforecast <- ugarchforecast(fitORspec = flexgarchfit, n.head = 30)
+Recall that our chosen model is `flexgarchfit` with the `flexgarchspec` for the train data. `test_garch` is the test data. Now, let's check RMSE and MAPE for this model for the test data:
+
+```{r MAPE-GARCH-test}
+# RMSE, MAPE of *return predictions from the fitted model on the test data
+## Way 1: by hand: use actual value - forecast value
+mean(abs((test_garch - forecast1@forecast$seriesFor) / test_garch))
+
+## Way 2: by accuracy function: RMSE, MAPE for the series
+accuracy(f1, test_garch)
+accuracy(f2, test_garch)
+
+# RMSE, MAPE for the volatility
+accuracy(f1_sigma, sd(test_garch))
+accuracy(f2_sigma, sd(test_garch))
 ```
 
-```{r MAPE-GARCH}
-# MAPE
-ape <- abs(residuals(flexgarchfit)) / (sigma(flexgarchfit) - gjrerrors)
-mean(ape)
+Conclusion:
 
-mean(abs(flexgarchfit@fit$residuals) / (sigma(flexgarchfit) - gjrerrors))
-
-f <- forecast(flexgarchfit, h = 12)
-accuracy(f$mean, meta_discrete_returns)
-```
+* For the returns: RMSE = 0.017, MAPE = 121 
+* For the volatility: RMSE = 0.0024, MAPE = 13.81
+* The MAPE for the returns is extremely high, meaning that the predicted values are much larger than the actual values. Predicting returns for financial time series is very hard. 
+* Compared to ARIMA, GARCH(1,1) with ARMA(4,4) performs worse.
 
 ### Way 2: Selecting GARCH order by AIC
 
@@ -721,9 +814,40 @@ garch23_spec <- ugarchspec(variance.model = list(garchOrder=c(2,3)),
                           mean.model = list(armaOrder=c(0,0), include.mean = FALSE),
                           distribution.model = "std")
 
-garch23_fit <- ugarchfit(spec = garch23_spec, data = meta_discrete_returns,
+# Fit the whole time series
+garch23_fit_total <- ugarchfit(spec = garch23_spec, data = meta_discrete_returns,
+                        solver.control = list(trace = 1))
+
+# Fit the train test
+garch23_fit_train <- ugarchfit(spec = garch23_spec, data = train_garch,
+                        solver.control = list(trace = 1))
+
+# Fit the train test
+garch23_fit_test <- ugarchfit(spec = garch23_spec, data = test_garch,
                         solver.control = list(trace = 1))
 ```
 
+## Prophet
 
+Prophet is an open source library published by Facebook that is based on decomposable (trend+seasonality+holidays) models. We use a decomposable time series model with three main model components: trend, seasonality, and holidays. They are combined in the following equation:
+
+$$y(t) = g(t) + s(t) + h(t) + \varepsilon_{t} $$
+
+* g(t): piecewise linear or logistic growth curve for modeling non-periodic changes in time series
+* s(t): periodic changes (e.g. weekly/yearly seasonality)
+* h(t): effects of holidays (user provided) with irregular schedules
+* $\varepsilon_{t}$: error term accounts for any unusual changes not accommodated by the model
+
+```{r}
+# Create a new column with logged price
+d_meta_prophet <- d_meta %>% 
+  mutate(price_meta = log(as.float(Meta))) %>% 
+  rename(ds = date_meta,
+         y = price_meta)
+
+# 
+prophet_model1 <- prophet(d_meta_prophet)
+
+future <- make_future_dataframe(m, periods )
+```
 
