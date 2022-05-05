@@ -1,8 +1,6 @@
 ---
 title: "Comparison of machine learning models for univariate time series forecasting"
-author:
-  - Students - Quyen Duong, Kevin Stadelmann
-  - Professors - Thomas Ankenbrand, Denis Bieri
+author: Quyen Duong
 date: "Last edited `r format(Sys.time(), '%d %B %Y')`"
 output: 
   html_document:
@@ -23,7 +21,7 @@ code.r{
   font-size: 11px;
 }
 pre {
-  font-size: 10px
+  font-size: 11px
 }
 td {  /* Table  */
   font-size: 12px;
@@ -132,12 +130,12 @@ The model with the lowest MAPE will be the winner.
 
 ## Documentation and scope
 
-Because the EDA and the entire analysis are long and out of the report length limitation, the authors created two R markdown files corresponding to two HTML files:
+Because the EDA and the entire analysis are long and out of the report length limitation, the author created two R markdown files corresponding to two HTML files:
 
 * `meta_analysis.Rmd`, `meta_analysis.html`: The complete analysis with the step-by-step procedure to choose the best model of each type (a draft version with all codes displayed)
 * `TSA_FinalReport.Rmd`, `TSA_FinalReport.html`: The final report with only important findings
 
-Moreover, not all the codes will be shown in the `TSA_FinalReport.html` due to the restriction. The study scope solely focuses on one stock as univariate time series with three machine learning methods. In other words, we examine how well each machine learning model performs on the same dataset. 
+Moreover, not all the codes will be shown in the `TSA_FinalReport.html` due to the restriction. The study scope solely focuses on one stock as univariate time series with three machine learning methods. In other words, we examine how well each machine learning model performs on the same dataset. Also, the algorithm and mathematics behind each machine learning method is out of this research's scope. 
 
 ```{r load-data, include = FALSE}
 # Downloading Meta ("FB") via Yahoo Finance API
@@ -415,7 +413,7 @@ test_garch <- meta_ret[(length(meta_ret) - 99):length(meta_ret)]
 
 ## Fitting model and forecasting
 
-To shortly explain, the model was chosen according to their lowest information criteria. To be more specific, the p and q parameters were passed in a for loop and compared different (p,q) combinations in a matrix. 
+To shortly explain, the model was chosen according to their lowest information criteria. To be more specific, the p and q parameters were passed in a for loop and compared different (p,q) combinations in a matrix. Since ARIMA(4,1,4) was the best model in the previous chapter, we tried to fit `armaOrder` to `c(4,4)`. Nevertheless, the model did not perform better (for both the model evaluation and MAPE). Remarkably, after altering several (p,q) pairs from 0 to 4 for armaOrder, we still kept (0,0) as it brings the best result.     
 
 ```{r GARCH-order-selection, include = FALSE}
 # Create 3x3 matrix
@@ -492,6 +490,8 @@ test_prophet <- d_meta_prophet %>%
 
 ## Fitting model and forecasting
 
+The models were fitted two ways with (i) `log(price_meta)` and (ii) `price_meta`. The way (ii) generated better MAPE, thus, was selected.   
+
 ```{r model-prophet}
 # Fit model with train data
 fit_prophet <- prophet(train_prophet)
@@ -521,7 +521,7 @@ predict_last100 <- predict_value[(length(predict_value) - 100): length(predict_v
 dyplot.prophet(fit_prophet, forecast_prophet)
 ```
 
-From the overall forecast plot, we can see that the model predicted blue line fits very well with the black data points. However, in March 2020, where a sudden drop in the price happened, the prediction is not so accurate at these points. Next, the graph below dives deeper into the forecast components and displays the trend, yearly seasonality, weekly seasonality of the time series. We do not include holidays in this case. 
+From the overall forecast plot, we can see that the model predicted blue line fits very well with the black data points. However, in March 2020, where the pandemic was announced and a sudden drop in the price happened, the prediction is not so accurate at these points. Next, the graph below dives deeper into the forecast components and displays the trend, yearly seasonality, weekly seasonality of the time series. We do not include holidays in this case. 
 
 ```{r plot-component-prophet, echo = FALSE, fig.height = 4}
 # Visualize the components
@@ -599,13 +599,13 @@ vt_weights <- 0.05 / annualvol
 plot(merge(annualvol, vt_weights), multi.panel = TRUE)
 ```
 
-Under this GARCH selected model section, we only exhibit the standard GARCH model. Yet, there are different GARCH models such as the GJR-GARCH to measure the leverage effect. For instance, negative news about returns influence the variance more than positive news. The GJR GARCH model allows for asymmetric response of variance to positive and negative news (Datacamp, 2021). 
+Under this GARCH selected model section, we only exhibit the standard GARCH model. Yet, there are different GARCH models such as the GJR-GARCH to measure the leverage effect. For instance, negative news about returns influence the variance more than positive news. The GJR GARCH model allows for asymmetric response of variance to positive and negative news Another instance is GARCH-in-mean model, which exploits the relationship between the expected return and the variance of the return. The higher the risk in terms of variance, the higher should be the expected return on investment (Datacamp, 2021). 
 
 # Conclusion and limitation
 
 According to our fitting models and their accuracy measurement, with the least error percentage, GARCH predicts best, followed by Prophet and lastly ARIMA. Noticeably, the result might change by optimizing different hyperparameters with different expert knowledge levels. Each machine learning method also serves for various purposes. Therefore, it's important to apply models with a thoughtful, analytical, critical mindset. Understanding the fundamentals of the machine methods when fitting model is essential. There are diverse sources of machine learning examples on the Internet. Nevertheless, learning from different sources and comparing them could be helpful to cross-check, avoid statistical mistakes, and ensure applying the proper approach. Also, measuring the accuracy in a comparable unit is very noteworthy.
 
-The study also consists of some limitations. First, due to a short period and page requirements, the project had to restrict to applying only one stock and three machine learning techniques. Varied directions for the research could be developed. The future study could fit different financial instruments to observe the prediction accuracy. Besides, there are many other exciting machine learning models such as neural networks, random forest could be conducted. Furthermore, a more in-depth analysis of several models could be done in case of a more extended working period. The HTML file including some codes and graphs might exceed few pages with the professor's agreement. Finally, the two authors had the first machine learning for the time series project. There might be inexperience in finding the best models for each type. We would like to take this opportunity to send a special thank to Mr. Bieri for coaching us during the process.  
+The study also consists of some limitations. First, due to a short period and page requirements, the project had to restrict to applying only one stock and three machine learning techniques. Varied directions for the research could be developed. The future study could fit different financial instruments to observe the prediction accuracy. Besides, there are many other exciting machine learning models such as neural networks, random forest could be conducted. Furthermore, a more in-depth analysis of several models could be done in case of a more extended working period. The HTML file including some codes and graphs might exceed few pages with the professor's agreement. Finally, the two authors had the first machine learning for the time series project. There might be inexperience in finding the best models for each type.   
 
 # Bibliography
 
